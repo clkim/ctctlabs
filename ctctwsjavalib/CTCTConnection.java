@@ -1,7 +1,9 @@
 package com.ctctlabs.ctctwsjavalib;
 
+import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Calendar;
@@ -10,12 +12,15 @@ import java.util.HashMap;
 import java.util.Locale;
 import java.util.TimeZone;
 
+import org.apache.http.HttpEntity;
 import org.apache.http.HttpResponse;
 import org.apache.http.HttpStatus;
+import org.apache.http.NameValuePair;
 import org.apache.http.auth.AuthScope;
 import org.apache.http.auth.InvalidCredentialsException;
 import org.apache.http.auth.UsernamePasswordCredentials;
 import org.apache.http.client.ClientProtocolException;
+import org.apache.http.client.entity.UrlEncodedFormEntity;
 import org.apache.http.client.methods.HttpDelete;
 import org.apache.http.client.methods.HttpGet;
 import org.apache.http.client.methods.HttpPost;
@@ -27,8 +32,11 @@ import org.apache.http.conn.ssl.SSLSocketFactory;
 import org.apache.http.entity.ByteArrayEntity;
 import org.apache.http.impl.client.DefaultHttpClient;
 import org.apache.http.impl.conn.tsccm.ThreadSafeClientConnManager;
+import org.apache.http.message.BasicNameValuePair;
 import org.apache.http.params.BasicHttpParams;
 import org.apache.http.params.HttpParams;
+import org.json.JSONException;
+import org.json.JSONObject;
 import org.xml.sax.helpers.DefaultHandler;
 
 
@@ -48,8 +56,10 @@ import org.xml.sax.helpers.DefaultHandler;
  */
 public class CTCTConnection extends DefaultHandler {
 	public static final String API_BASE = "https://api.constantcontact.com";
+	public static final String OAUTH2_TOKENINFO_LINK = "https://oauth2.constantcontact.com/oauth2/tokeninfo.htm";
 
 	private String username;
+	private String accessToken; // for OAuth2.0
 
 	private DefaultHttpClient httpclient;
 
@@ -112,6 +122,7 @@ public class CTCTConnection extends DefaultHandler {
 	InputStream doGetRequest(String link) 
 	throws ClientProtocolException, IOException {
 		HttpGet httpget = new HttpGet(link);
+		if (accessToken != null) httpget.setHeader("Authorization", "Bearer "+accessToken); // for OAuth2.0
 		HttpResponse response = httpclient.execute(httpget);
 
 		int status = response.getStatusLine().getStatusCode();
@@ -208,6 +219,67 @@ public class CTCTConnection extends DefaultHandler {
 		}
 	}
 
+	/**
+	 * Extension of library 
+	 * Authenticate with and obtain username associated with OAuth2 access token
+	 * @param accessToken
+	 * @return the username string 
+	 * @throws IOException
+	 * @throws JSONException
+	 */
+	public String authenticateOAuth2(String accessToken)
+	throws IOException, JSONException {
+		// create entity object
+		ArrayList<NameValuePair> params = new ArrayList<NameValuePair>();
+		params.add(new BasicNameValuePair("access_token", accessToken));
+		HttpEntity entity = new UrlEncodedFormEntity(params);
+		// create post object
+		HttpPost httppost = new HttpPost(OAUTH2_TOKENINFO_LINK);
+		httppost.addHeader(entity.getContentType());
+		httppost.setEntity(entity);
+		
+		HttpResponse response = httpclient.execute(httppost);
+		
+		if(response.getStatusLine().getStatusCode() == HttpStatus.SC_OK) {
+			InputStream istream = (response.getEntity() != null)
+					? response.getEntity().getContent() : null;
+			if (istream != null) {
+				String jsonResult = mConvertStreamToString(istream);
+				JSONObject json = new JSONObject(jsonResult);
+				this.username = json.getString("user_name");
+				this.accessToken = accessToken;
+				return this.username;
+			}
+		}
+		return null;
+	}
+	
+	/**
+	 * Extension of library
+	 * Helper method to get multiline json response as a multiline string
+	 * @param is input stream
+	 * @return string built from lines read in from input stream
+	 */
+	static String mConvertStreamToString(InputStream is) {
+		BufferedReader reader = new BufferedReader(new InputStreamReader(is));
+		StringBuilder sb = new StringBuilder();
+		String line = null;
+		try {
+			while ((line = reader.readLine()) != null) {
+				sb.append(line + "\n");
+			}
+		} catch (IOException e) {
+			e.printStackTrace();
+		} finally {
+			try {
+				is.close();
+			} catch (IOException e) {
+				e.printStackTrace();
+			}
+		}
+		return sb.toString();
+	}
+	
 	/**
 	 * Gets a ContactListIterator to retrieve all contact lists associated with the authenticated user
 	 */
