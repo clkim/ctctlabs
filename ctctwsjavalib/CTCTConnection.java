@@ -4,6 +4,8 @@ import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Calendar;
@@ -30,6 +32,10 @@ import org.apache.http.conn.scheme.Scheme;
 import org.apache.http.conn.scheme.SchemeRegistry;
 import org.apache.http.conn.ssl.SSLSocketFactory;
 import org.apache.http.entity.ByteArrayEntity;
+import org.apache.http.entity.mime.FormBodyPart;
+import org.apache.http.entity.mime.MultipartEntity;
+import org.apache.http.entity.mime.content.ByteArrayBody;
+import org.apache.http.entity.mime.content.StringBody;
 import org.apache.http.impl.client.DefaultHttpClient;
 import org.apache.http.impl.conn.tsccm.ThreadSafeClientConnManager;
 import org.apache.http.message.BasicNameValuePair;
@@ -129,6 +135,48 @@ public class CTCTConnection extends DefaultHandler {
 
 		// If receive anything but a 200 status, return a null input stream
 		if(status == HttpStatus.SC_OK) {
+			return response.getEntity().getContent();
+		} else {
+			return null;
+		}
+	}
+	
+	/**
+	 * Perform a multipart post request to the web service
+	 * @param link     URL to perform the post request
+	 * @param content  the string part
+	 * @param baData   the byte array part
+	 * @param fileName the file name in the byte array part
+	 * @return response entity content returned by the web service
+	 * @throws ClientProtocolException
+	 * @throws IOException
+	 * @author CL Kim
+	 */
+	InputStream doPostMultipartRequest(String link, String content, byte[] baData, String fileName)
+				throws ClientProtocolException, IOException {
+		HttpPost httppost = new HttpPost(link);
+		
+		StringBody sbody = new StringBody(content);
+		FormBodyPart fbp1 = new FormBodyPart("imageatomxmlpart", sbody);
+		fbp1.addField("Content-Type", "application/atom+xml");
+		//fbp1.addField("Accept", "application/atom+xml");
+		
+		ByteArrayBody babody = new ByteArrayBody(baData, fileName);
+		FormBodyPart fbp2 = new FormBodyPart("imagejpegpart", babody);
+		fbp2.addField("Content-Type", "image/jpeg");
+		fbp2.addField("Transfer-Encoding", "binary");
+		//fbp2.addField("Accept", "application/atom+xml");
+		
+		MultipartEntity reqEntity = new MultipartEntity(); // HttpMultipartMode.STRICT is default, cannot be HttpMultipartMode.BROWSER_COMPATIBLE
+		reqEntity.addPart(fbp1);
+		reqEntity.addPart(fbp2);
+		httppost.setEntity(reqEntity);
+		HttpResponse response = httpclient.execute(httppost);
+		
+		int status = response.getStatusLine().getStatusCode();
+
+		// If receive anything but a 201 status, return a null input stream
+		if(status == HttpStatus.SC_CREATED) {
 			return response.getEntity().getContent();
 		} else {
 			return null;
@@ -502,8 +550,7 @@ public class CTCTConnection extends DefaultHandler {
 	 * Creates a ContactList with the HashMap of attributes
 	 * @return The ContactList created
 	 */
-	public ContactList createContactList(HashMap<String, Object> attributes) 
-	throws InvalidCredentialsException, ClientProtocolException, IOException {
+	public ContactList createContactList(HashMap<String, Object> attributes) {
 		ContactList contactList = new ContactList(attributes, this, true);
 		contactList.setAttribute("Link", "/ws/customers/" + username + "/lists");
 		return contactList;
@@ -528,8 +575,7 @@ public class CTCTConnection extends DefaultHandler {
 	 * @return The Schedule created
 	 * @author CL Kim
 	 */
-	public Schedule createSchedule(HashMap<String, Object> attributes, String campaignId, Date scheduledTime)
-			throws InvalidCredentialsException, ClientProtocolException, IOException {
+	public Schedule createSchedule(HashMap<String, Object> attributes, String campaignId, Date scheduledTime) {
 		Schedule schedule = new Schedule(attributes, this, true);
 		schedule.setAttribute("Link", "/ws/customers/" + username + "/campaigns/"+campaignId +"/schedules");
 
@@ -587,4 +633,53 @@ public class CTCTConnection extends DefaultHandler {
 		campaign.setAttribute("SenderEmailAddress", senderEmailAddress);
 		return campaign;
 	}
+	
+	/**
+	 * Uploads (creates) an Image with HashMap of attributes and the data for the image upload in the parameters
+	 * @param attributes
+	 * @param folderId
+	 * @param fileName
+	 * @param imageData
+	 * @param description
+	 * @return The Image mutable model object created
+	 * @author CL Kim
+	 */
+	public Image createImage(HashMap<String, Object> attributes, String folderId, String fileName, byte[] imageData, String description) {
+		Image imageModelObj = new Image(attributes, this, true);
+		imageModelObj.setAttribute("Link", "/ws/customers/" + username + "/library/folders/" + folderId + "/images");
+		imageModelObj.setAttribute("FileName", fileName);
+		imageModelObj.setAttribute("Image", imageData);
+		imageModelObj.setAttribute("MD5Hash", mMd5Hex(imageData));
+		imageModelObj.setAttribute("Description", description);
+		return imageModelObj;
+	}
+	
+	/**
+	 * Helper to get hex string of md5 hash
+	 *  adapted from http://www.kospol.gr/204/create-md5-hashes-in-android/
+	 * @param data  the byte array to be hashed
+	 * @return hex string md5 hash
+	 * @author CL Kim
+	 */
+    String mMd5Hex(byte[] data) {
+        try {
+            // Create MD5 Hash
+            MessageDigest md = MessageDigest.getInstance("MD5");
+            md.update(data);
+            byte[] dataMd5 = md.digest();
+            
+            // Create Hex String
+            StringBuffer hexString = new StringBuffer();
+            for (int i=0; i<dataMd5.length; i++) {
+            	String h = Integer.toHexString(0xFF & dataMd5[i]);
+                while (h.length() < 2)
+                    	h = "0" + h;
+                hexString.append(h);
+            }
+            return hexString.toString();
+        } catch (NoSuchAlgorithmException e) {
+            e.printStackTrace();
+            return "";
+        }
+    }
 }

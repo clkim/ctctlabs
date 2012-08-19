@@ -33,16 +33,26 @@ import org.xml.sax.XMLReader;
  * When attributes have been modified, is marked as dirty.
  * 		Once dirty, can commit changes to the web service to update the associated entry.
  * 
- * @author Huan Lai
+ * August 2012
+ * Update to do commit by posting a multipart request, for uploading an image to Library
+ * 
+ * @author Huan Lai, updated CL Kim August 2012
  *
  */
 public abstract class MutableModelObject extends ModelObject {
 	private boolean dirty;
 	private boolean created;
+	private boolean multipart;
 	
 	MutableModelObject(HashMap<String, Object> attributes, CTCTConnection connection, boolean created) {
 		super(attributes, connection);
 		this.created = created;
+	}
+	
+	MutableModelObject(HashMap<String, Object> attributes, CTCTConnection connection, boolean created, boolean multipart) {
+		super(attributes, connection);
+		this.created = created;
+		this.multipart = multipart;
 	}
 	
 	/**
@@ -86,8 +96,17 @@ public abstract class MutableModelObject extends ModelObject {
 	throws ClientProtocolException, IOException {
 		
 		InputStream response;
+		// If an image is to be uploaded to the server, perform a multipart post
+		if (multipart && created) {
+			multipart = false;
+			created = false;
+			String request = generateCreateXmlRequest();
+			byte[] imageData = (byte[])getAttribute("Image");
+			String fileName = (String)getAttribute("FileName");
+			response = connection.doPostMultipartRequest(CTCTConnection.API_BASE + (String)getAttribute("Link"), request, imageData, fileName);
+		}  
 		// If the entry is to be created on the server, perform a post
-		if(created) {
+		else if(created) {
 			created = false;
 			String request = generateCreateXmlRequest();
 			response = connection.doPostRequest(CTCTConnection.API_BASE + (String)getAttribute("Link"), request);
